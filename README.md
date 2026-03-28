@@ -1,64 +1,148 @@
 # dicom-tag-validator
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/tests-pytest-brightgreen.svg)](tests/)
+![Python](https://img.shields.io/badge/Python-3.9+-blue?logo=python)
+![Tests](https://img.shields.io/badge/Tests-64_passing-brightgreen)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-> Validates DICOM tags against the PS3.6 standard. Supports VR format checking, semantic validation, and HL7 v2.x PID mapping.
+A specialized Python CLI tool and library for validating DICOM metadata against the PS3.6 standard. It ensures clinical data integrity by performing deep Value Representation (VR) validation and structural checks.
+
+## What is DICOM?
+
+DICOM (Digital Imaging and Communications in Medicine) is the global standard for medical imaging and related information. Medical devices (CT, MRI, X-ray) produce DICOM files containing both the image and critical metadata (Patient ID, Study Date, Modality). 
+
+Incorrect tags can lead to clinical errors or system integration failures. This tool validates those tags before they enter your database or VNA (Vendor Neutral Archive).
+
+## Quick Start
+
+### Validate a JSON file
+
+Create a `tags.json` file:
+```json
+{
+  "(0008,0060)": "CT",
+  "(0010,0010)": "Doe^John",
+  "(0010,0040)": "X"
+}
+```
+
+Run validation:
+```bash
+python -m src.main validate tags.json
+```
+
+Output:
+```
+  ❌ [ERROR] (0010,0040): PatientSex must be 'M', 'F', 'O', or empty — got 'X'
+     💡 Use M (male), F (female), O (other), or leave empty
+```
+
+### Get a concise checklist
+
+```bash
+python -m src.main demo --checklist
+```
 
 ## Features
 
-- **DICOM PS3.6 Registry** — Validates 35+ standard tags with VR/VM conformance
-- **VR Validation** — Conformance checking for DA, TM, UI, DS, IS, and CS values
-- **Semantic Rules** — Domain logic for modality codes, patient sex, and UID completeness
-- **HL7 v2.x Mapper** — Converts PID segments to DICOM patient module tags
-- **CLI Workspace** — `validate`, `demo`, and `list-tags` subcommands with JSON output
+- **Standard Compliance**: Validates against DICOM PS3.6 Data Dictionary.
+- **VR Validation**: Strict format checking for DA (Date), TM (Time), UI (UID), DS (Decimal), etc.
+- **HL7 Integration**: Built-in mapper for clinical workflows (PID segment to DICOM tags).
+- **Flexible CLI**: Detailed reports, concise checklists, or machine-readable JSON output.
+- **Type-2 Checks**: Identifies missing mandatory tags that are allowed to be empty.
 
-## Tech Stack
+## How it works — module by module
 
-- **Core**: Python 3.9+
-- **Testing**: pytest (100% coverage)
-- **Standard**: DICOM PS3.6 (2024 Edition)
+### `src/main.py` — Core & CLI
+
+The engine of the tool. It contains the data dictionary, VR validators, and the main validation logic.
+
+#### Programmatic Usage
+
+```python
+from src.main import DicomTagValidator
+
+validator = DicomTagValidator(strict=True)
+
+tags = {
+    "(0008,0016)": "1.2.840.10008.5.1.4.1.1.2",
+    "(0010,0040)": "M"
+}
+
+report = validator.validate(tags)
+
+if report.is_valid:
+    print(f"Passed: {report.valid_tags} tags valid")
+else:
+    for error in report.errors:
+        print(f"Error in {error.tag}: {error.message}")
+```
+
+#### HL7 to DICOM Mapping
+
+Clinical systems often need to populate DICOM metadata from HL7 messages.
+
+```python
+from src.main import HL7DicomMapper
+
+mapper = HL7DicomMapper()
+pid_segment = {
+    "PID.3": "PAT-123",
+    "PID.5": "Smith^Jane",
+    "PID.8": "F"
+}
+
+dicom_tags = mapper.from_hl7_pid(pid_segment)
+# Result: {'(0010,0020)': 'PAT-123', '(0010,0010)': 'Smith^Jane', ...}
+```
 
 ## Project Structure
 
 ```
 dicom-tag-validator/
 ├── src/
-│   └── main.py          # Validator logic and HL7 mapper
+│   ├── __init__.py
+│   └── main.py             # Core validator, registry, and CLI
 ├── tests/
-│   └── test_validator.py # pytest suite
+│   ├── test_validator.py   # 64 tests covering VRs, Mapper, and CLI
+│   └── test_placeholder.py
 ├── examples/
-│   └── sample_tags.json  # Example input
+│   └── sample_tags.json
+├── requirements.txt
+├── LICENSE
 └── README.md
 ```
 
-## Getting Started
+## Installation
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/DinhLucent/dicom-tag-validator.git
-   ```
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Run validation:
-   ```bash
-   python src/main.py validate examples/sample_tags.json
-   ```
-
-## Demo
-
-Run the built-in demo to see error detection in action:
 ```bash
-python src/main.py demo
+git clone https://github.com/DinhLucent/dicom-tag-validator.git
+cd dicom-tag-validator
+pip install -r requirements.txt
+```
+
+No external dependencies — runs on vanilla Python 3.9+.
+
+## Running Tests
+
+```bash
+# Run all 64 tests
+python -m pytest tests/ -v
+
+# Quick summary
+python -m pytest tests/ -q
+```
+
+## Configuration
+
+The validator uses a built-in subset of the PS3.6 registry. You can filter the tags it knows about via the CLI:
+
+```bash
+python -m src.main list-tags --filter Patient
 ```
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+MIT License — see [LICENSE](LICENSE)
 
 ---
 Built by [DinhLucent](https://github.com/DinhLucent)
-

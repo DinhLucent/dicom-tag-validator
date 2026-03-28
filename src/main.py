@@ -115,6 +115,9 @@ class ValidationIssue:
             "suggestion": self.suggestion,
         }
 
+    def __repr__(self) -> str:
+        return f"ValidationIssue(tag='{self.tag}', severity={self.severity.value}, code='{self.code}')"
+
     def __str__(self) -> str:
         icon = {"ERROR": "❌", "WARNING": "⚠️ ", "INFO": "ℹ️ "}[self.severity.value]
         lines = [f"  {icon} [{self.severity.value}] {self.tag}: {self.message}"]
@@ -160,6 +163,9 @@ class ValidationReport:
             "warning_count": len(self.warnings),
             "issues": [i.to_dict() for i in self.issues],
         }
+
+    def __repr__(self) -> str:
+        return f"ValidationReport(total={self.total_tags}, issues={len(self.issues)}, valid={self.is_valid})"
 
 
 def _parse_tag_str(tag_str: str) -> Optional[Tuple[int, int]]:
@@ -435,11 +441,14 @@ class HL7DicomMapper:
     """Map HL7 v2.x PID segment fields to DICOM patient module tags."""
 
     FIELD_MAP = {
-        "PID.3":  (0x0010, 0x0020),  # PatientID       <- PID-3 Patient ID
-        "PID.5":  (0x0010, 0x0010),  # PatientName     <- PID-5 Patient Name
-        "PID.7":  (0x0010, 0x0030),  # PatientBirthDate<- PID-7 Date of Birth
-        "PID.8":  (0x0010, 0x0040),  # PatientSex      <- PID-8 Administrative Sex
+        "PID.3":  (0x0010, 0x0020),  # PatientID        <- PID-3 Patient ID
+        "PID.5":  (0x0010, 0x0010),  # PatientName      <- PID-5 Patient Name
+        "PID.7":  (0x0010, 0x0030),  # PatientBirthDate <- PID-7 Date of Birth
+        "PID.8":  (0x0010, 0x0040),  # PatientSex       <- PID-8 Administrative Sex
+        "PID.10": (0x0010, 0x2160),  # EthnicGroup      <- PID-10 Ethnic Group
         "PID.11": (0x0010, 0x0040),  # (also sex)
+        "PID.13": (0x0010, 0x1040),  # PatientAddress   <- PID-13 Phone Number (Home) - approximate map
+        "PID.19": (0x0010, 0x0020),  # SSN Number       <- PID-19 SSN (map to PatientID)
     }
 
     SEX_MAP = {"M": "M", "F": "F", "U": "O", "O": "O", "A": "O", "N": "O", "C": "O"}
@@ -468,6 +477,29 @@ class HL7DicomMapper:
 # ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
+
+def print_checklist(report: ValidationReport) -> None:
+    print("\n" + "─" * 40)
+    print("  DICOM VALIDATION CHECKLIST")
+    print("─" * 40)
+    
+    # Required categories
+    checks = [
+        ("Structure", report.is_valid),
+        ("Group 0008 (Study)", not any(i.tag.startswith("(0008") for i in report.errors)),
+        ("Group 0010 (Patient)", not any(i.tag.startswith("(0010") for i in report.errors)),
+        ("Group 0020 (Instance)", not any(i.tag.startswith("(0020") for i in report.errors)),
+        ("VR Compliance", not any(i.code == "INVALID_VR_FORMAT" for i in report.errors)),
+    ]
+    
+    for label, passed in checks:
+        icon = "✅" if passed else "❌"
+        print(f"  {icon} {label:<25}")
+        
+    print("─" * 40)
+    print(f"  Result: {'PASS' if report.is_valid else 'FAIL'}")
+    print("─" * 40 + "\n")
+
 
 def print_report(report: ValidationReport, verbose: bool = True) -> None:
     print("\n" + "=" * 60)
@@ -520,10 +552,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     val.add_argument("file", help="JSON file with DICOM tags ({tag: value, ...})")
     val.add_argument("--strict", action="store_true", help="Warn on unknown/private tags")
     val.add_argument("--json", action="store_true", dest="json_output", help="Output results as JSON")
+    val.add_argument("--checklist", action="store_true", help="Output results as a concise checklist")
     val.add_argument("--exit-code", action="store_true", help="Return exit code 1 on errors")
 
     # demo command
-    subparsers.add_parser("demo", help="Run a built-in demo with sample tags")
+    demo = subparsers.add_parser("demo", help="Run a built-in demo with sample tags")
+    demo.add_argument("--checklist", action="store_true", help="Output results as a concise checklist")
 
     # list-tags command
     lt = subparsers.add_parser("list-tags", help="List all tags in the registry")
@@ -543,6 +577,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         if args.json_output:
             print(json.dumps(report.to_dict(), indent=2))
+        elif args.checklist:
+            print_checklist(report)
         else:
             print_report(report)
 
@@ -576,7 +612,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         validator = DicomTagValidator(strict=True)
         report = validator.validate(sample_tags)
-        print_report(report)
+        
+        if args.checklist:
+            print_checklist(report)
+        else:
+            print_report(report)
         return 0
 
     elif args.command == "list-tags":
